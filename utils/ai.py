@@ -1,4 +1,5 @@
 from langchain_openai import ChatOpenAI
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, HumanMessagePromptTemplate, AIMessagePromptTemplate, StringPromptTemplate
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -11,21 +12,11 @@ load_dotenv()
 
 llm = ChatOpenAI(model='gpt-3.5-turbo', temperature=0)
 
-store = {}
-
-def get_session_history(file_path: str) -> BaseChatMessageHistory:
-    if file_path not in store:
-        store[file_path] = ChatMessageHistory()
-    return store[file_path]
 
 def get_message_history(file_path: str) -> FileChatMessageHistory:
     file_path = os.path.join('data', file_path)
-    # try:
-    #     os.makedirs(file_path, exist_ok=True)
-    # except FileExistsError:
-    #     pass
-    print("got here")
     return FileChatMessageHistory(file_path)
+
 
 chat_prompt = ChatPromptTemplate.from_messages(
     [
@@ -54,10 +45,35 @@ chain_with_history = RunnableWithMessageHistory(
     ]
 )
 
-if __name__ == '__main__':
-    output = chain_with_history.invoke(
-        {'user_input': "What is my name?"},
-        config={"configurable" : {"file_path": "history.txt"}}
+output_parser = StrOutputParser()
+
+full_chain = chain_with_history | output_parser
+
+alt_chain = {'history' : lambda x: x['history'], 'user_input': lambda x: x['user_input']} | chat_prompt | llm | output_parser
+
+def get_answer(user_input: str, history):
+    return full_chain.invoke(
+        {'user_input': user_input},
+        config={"configurable": {"file_path": "history.txt"}}
     )
 
-    print(output)
+def get_answer_alt(user_input: str, history):
+    intermediate_conversation = []
+    for human, ai in history:
+        intermediate_conversation.append(HumanMessage(content=human))
+        intermediate_conversation.append(AIMessage(content=ai))
+    return alt_chain.invoke({'history': intermediate_conversation, 'user_input': user_input})
+
+
+# if __name__ == '__main__':
+#     # output = chain_with_history.invoke(
+#     #     {'user_input': "What is my name?"},
+#     #     config={"configurable" : {"file_path": "history.txt"}}
+#     # )
+
+#     output = full_chain.invoke(
+#         {'user_input': "How can you help me?"},
+#         config={"configurable": {"file_path": "history.txt"}}
+#     )
+
+#     print(output)
